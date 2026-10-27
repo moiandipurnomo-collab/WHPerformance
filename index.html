@@ -6,6 +6,35 @@
 <title>Dashboard Kinerja Warehouse</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600&display=swap">
 <style>
+ .hero-row {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.hero-img {
+  height: 160px;        /* ubah sesuai selera */
+  width: auto;
+  border-radius: 16px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.hero-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Tampilan HP: gambar di atas judul, lebih kecil */
+@media (max-width: 600px) {
+  .hero-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .hero-img {
+    height: 120px;
+  }
+}
 :root{--pocp:var(--po);--bg:#f3f5f2;--panel:#fff;--ink:#14231c;--mute:#63746b;--line:#dde3de;--smu:#1f7a55;--waste:#c2294b;--po:#d19a2a;--cp:#6b8db0;--head:#0f3128;--hi:#e6f2ea;
 box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
 @media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d1511;--panel:#15211b;--ink:#e6eee9;--mute:#93a69b;--line:#26362d;--smu:#4cc08f;--waste:#ff6b88;--po:#e3b04e;--cp:#8fb0d1;--head:#081410;--hi:#1b3025;color-scheme:dark}}
@@ -87,7 +116,7 @@ td{border-bottom:1px solid var(--line)}tr.tot td{font-weight:700;background:var(
  <div class="empty" id="boot">Memuat data dari Google Sheets…</div>
  <div id="app" hidden>
   <section class="hero" style="margin-top:0">
-   <div><div class="big" id="big"></div><p class="sc" id="sc"></p></div>
+   <div><img src="ksatria.jpg" alt="Ksatria penjaga gudang" class="hero-img"><div class="big" id="big"></div><p class="sc" id="sc"></p></div>
    <div class="hl" id="hl"></div>
   </section>
   <div class="kpi" id="kpi"></div>
