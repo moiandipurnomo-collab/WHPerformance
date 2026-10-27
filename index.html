@@ -68,8 +68,10 @@ td{border-bottom:1px solid var(--line)}tr.tot td{font-weight:700;background:var(
 .pl{display:grid;gap:10px}.pl div{display:flex;justify-content:space-between;gap:12px;align-items:center;border-bottom:1px solid var(--line);padding-bottom:8px}
 .pl i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:8px}.pl span{color:var(--mute);font-size:13px;display:block;text-align:right}
 .rk>div:nth-child(3){grid-column:1/-1}
+.dv td,.dv th{padding:8px 10px}.dv th.cur{color:var(--ink);box-shadow:inset 0 -2px var(--smu)}.dv tr.sel td:first-child{font-weight:700}.dv tr.sel td{outline:0;box-shadow:inset 0 1px var(--smu),inset 0 -1px var(--smu)}.dv td.z{color:var(--mute)}.dv td.t,.dv th.t{font-weight:700;background:var(--bg)}
 @media(max-width:760px){.pie{grid-template-columns:1fr}}
 </style>
+</head>
 <body>
 <div class="bar">
  <div class="t"><h1>Dashboard Kinerja Warehouse</h1><small id="upd">Memuat data…</small></div>
@@ -110,7 +112,7 @@ td{border-bottom:1px solid var(--line)}tr.tot td{font-weight:700;background:var(
    <h2>Peringkat</h2><p class="sub">Mengikuti satuan dan periode yang dipilih. Pada dimensi Warehouse, semua warehouse dibandingkan dan warehouse terpilih ditandai.</p>
    <div class="rk" id="rk"></div>
   </section>
-  <p class="note">Sumber: Google Sheets WH Performances (sheet GR WH, GR Area, STF, Waste), dimuat ulang otomatis tiap 5 menit. Diterima = GR WH (PO) + STF masuk. Dikirim = GR Area + STF keluar. STF diambil dari sheet STF; baris STF di GR WH yang tidak ada di sheet STF tetap dihitung sebagai STF masuk. Waste memakai nilai absolut. Minggu dimulai hari Senin. Qty dijumlahkan sesuai satuan transaksi tanpa konversi. Nominal Pengiriman per Warehouse diambil dari sheet Delivery (total nilai seluruh baris dengan asal Warehouse Ops), selalu dalam Rupiah dan tidak terpengaruh pilihan Qty/Value.</p>
+  <p class="note">Sumber: Google Sheets WH Performances (sheet GR WH, GR Area, STF, Waste), dimuat ulang otomatis tiap 5 menit. Diterima = GR WH (PO) + STF masuk. Dikirim = GR Area + STF keluar. STF diambil dari sheet STF; baris STF di GR WH yang tidak ada di sheet STF tetap dihitung sebagai STF masuk. Waste memakai nilai absolut. Minggu dimulai hari Senin. Qty dijumlahkan sesuai satuan transaksi tanpa konversi. Nominal Pengiriman per Warehouse diambil dari sheet Delivery (baris = bulan, kolom = warehouse), selalu dalam Rupiah dan tidak terpengaruh pilihan Qty/Value; sel kosong berarti belum diisi.</p>
  </div>
 </main>
 <script>
@@ -127,7 +129,7 @@ const DN=['Sen','Sel','Rab','Kam','Jum','Sab','Min'];
 const $=id=>document.getElementById(id);
 const S={y:0,wn:'',wh:'',view:'w',m:'',w:'',met:'q',vis:{po:1,sti:1,gd:1,sto:1,wa:1},dim:{r:0,w:0,s:0},n:{r:10,w:10,s:10}};
 let D=null,WH,PR,CP,B,y0,y1,busy=false,last=null;
- 
+
 /* ---------- pengambilan data (Google Sheets, gviz JSONP) ---------- */
 function gviz(sheet,cols){return new Promise((res,rej)=>{
  const cb='__g'+Math.random().toString(36).slice(2),s=document.createElement('script');
@@ -169,40 +171,49 @@ async function load(){
   P[k]=[...mp.values()];C[k]=[...mc.values()]}
  return{wh,pr,cp,base,d0,d1,P,C};
 }
- 
-/* ---------- nominal pengiriman (sheet Delivery) ---------- */
+
+/* ---------- nominal pengiriman (sheet Delivery: baris = bulan, kolom = warehouse) ---------- */
+function gvizT(sheet){return new Promise((res,rej)=>{ /* sama seperti gviz, tapi baris 1 dibaca sebagai header agar nama warehouse terbaca */
+ const cb='__d'+Math.random().toString(36).slice(2),s=document.createElement('script');
+ const done=()=>{clearTimeout(t);delete window[cb];s.remove()};
+ const t=setTimeout(()=>{done();rej(new Error('timeout sheet '+sheet))},120000);
+ window[cb]=r=>{done();if(!r||r.status=='error')return rej(new Error((r&&r.errors&&r.errors[0]&&r.errors[0].message)||'ditolak'));res(r.table)};
+ s.onerror=()=>{done();rej(new Error('gagal memuat sheet '+sheet))};
+ s.src='https://docs.google.com/spreadsheets/d/'+SHEET+'/gviz/tq?sheet='+encodeURIComponent(sheet)+'&headers=1&tq='+encodeURIComponent('select *')+'&tqx=out:json;responseHandler:'+cb+'&_='+Date.now();
+ document.head.appendChild(s)})}
+function nom(v){if(typeof v=='number')return v;if(v==null)return null;let s=String(v).replace(/[^\d.,\-]/g,'');if(!/\d/.test(s))return null;
+ s=/^-?\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)?s.replace(/\./g,'').replace(',','.'):s.replace(/,/g,'');const n=parseFloat(s);return isNaN(n)?null:n}
+function mIdx(s){s=String(s==null?'':s).trim().toLowerCase();if(!s)return -1;return MNF.findIndex(n=>{n=n.toLowerCase();return s==n||(s.length>=3&&s.length<=4&&n.startsWith(s))})}
 async function loadDelivery(){
- const rows=await gviz('Delivery','*'),m=new Map(),names=new Set(),ys=new Set();let oc=-1,n=0;
- for(const r of rows){const c=r.c;if(!c)continue;const a=cs(c,0);
-  if(oc<0&&/number|nomor/i.test(a)){const j=c.findIndex(x=>x&&/^origin$/i.test(String(x.v==null?'':x.v).trim()));if(j>-1)oc=j}
-  if(!/^[A-Za-z]{2,5}\d{6,}/.test(a))continue;
-  let t=null;for(let i=1;i<=5&&t==null;i++)t=pdt(cv(c,i));if(t==null)continue;
-  let o=oc>-1?cs(c,oc):'';if(!isWH(o)){o='';if(oc<0)for(let i=1;i<c.length;i++)if(isWH(cs(c,i))){o=cs(c,i);break}}
-  if(!isWH(o))continue;
-  let li=-1;for(let i=c.length-1;i>0;i--)if(c[i]&&typeof c[i].v=='number'){li=i;break}if(li<0)continue;
-  const d=new Date(t),y=d.getUTCFullYear(),mo=d.getUTCMonth(),k=o+'|'+y+'|'+mo;
-  m.set(k,(m.get(k)||0)+c[li].v);names.add(o);ys.add(y);n++}
- if(!n)throw new Error('sheet Delivery kosong atau kolomnya tidak dikenali');
- return{m,names:[...names].sort(),ys:[...ys].sort((a,b)=>a-b)};
+ const tb=await gvizT('Delivery'),rows=tb.rows||[],wc=new Map();
+ (tb.cols||[]).forEach((c,i)=>{const l=String(c.label||'').trim();if(isWH(l))wc.set(i,l)});
+ if(!wc.size)for(const r of rows){const c=r.c;if(!c)continue;c.forEach((x,i)=>{const l=x&&x.v!=null?String(x.v).trim():'';if(isWH(l))wc.set(i,l)});if(wc.size)break}
+ if(!wc.size)throw new Error('header warehouse tidak ditemukan di sheet Delivery');
+ const m=new Map(),names=[...new Set(wc.values())];let n=0;
+ for(const r of rows){const c=r.c;if(!c)continue;let mo=mIdx(cs(c,0));
+  if(mo<0){const t=pdt(cv(c,0));if(t!=null)mo=new Date(t).getUTCMonth()}
+  if(mo<0)continue;
+  wc.forEach((w,i)=>{const v=nom(cv(c,i));if(v==null||v===0)return;const k=w+'|'+mo;m.set(k,(m.get(k)||0)+v);n++})}
+ return{m,names,n};
 }
 function drawDelivery(){
- const t=$('dvTbl'),sub=$('dvSub');
- if(!D.DL){sub.textContent='';t.innerHTML='<tbody><tr><td class="empty" style="text-align:center">Data sheet Delivery belum bisa dimuat'+(D.DLerr?' ('+D.DLerr+')':'')+'. Klik Muat ulang.</td></tr></tbody>';return}
- const L=D.DL,byY=S.view=='y';let cols=[];
- if(byY){L.ys.forEach(y=>cols.push({l:''+y,y,mo:-1}))}
- else{let last=-1;for(let mo=0;mo<12;mo++)if(L.names.some(w=>L.m.has(w+'|'+S.y+'|'+mo)))last=mo;
-  for(let mo=0;mo<=Math.max(last,0);mo++)cols.push({l:MNF[mo],y:S.y,mo})}
- const val=(w,c)=>c.mo<0?[...Array(12).keys()].reduce((a,mo)=>a+(L.m.get(w+'|'+c.y+'|'+mo)||0),0):(L.m.get(w+'|'+c.y+'|'+c.mo)||0);
+ const t=$('dvTbl'),sub=$('dvSub'),msg=x=>{t.innerHTML='<tbody><tr><td class="empty" style="text-align:center">'+x+'</td></tr></tbody>'};
+ if(!D.DL){sub.textContent='';return msg('Data sheet Delivery belum bisa dimuat'+(D.DLerr?' ('+D.DLerr+')':'')+'. Klik Muat ulang.')}
+ const L=D.DL,byY=S.view=='y';
+ sub.textContent='Nilai pengiriman tiap warehouse ('+(byY?'total tahun '+L.year:'tahun '+L.year+', per bulan')+') · Rupiah · sumber sheet Delivery. Bulan yang belum diisi di sheet tampil “–”. Arahkan kursor ke angka untuk nilai lengkap.';
+ if(!byY&&S.y!==L.year)return msg('Sheet Delivery belum memiliki kolom tahun, sehingga datanya dianggap tahun '+L.year+'. Pilih tahun '+L.year+' untuk melihatnya.');
+ let last=-1;for(let mo=0;mo<12;mo++)if(L.names.some(w=>L.m.has(w+'|'+mo)))last=mo;
+ if(last<0)return msg('Belum ada nominal pengiriman yang terisi di sheet Delivery.');
+ const cols=byY?[{l:''+L.year,mo:-1}]:MNF.slice(0,last+1).map((l,mo)=>({l,mo}));
+ const val=(w,c)=>c.mo<0?[...Array(12).keys()].reduce((a,mo)=>a+(L.m.get(w+'|'+mo)||0),0):(L.m.get(w+'|'+c.mo)||0);
  const R=L.names.map(w=>{const v=cols.map(c=>val(w,c));return{w,v,s:v.reduce((a,b)=>a+b,0)}}),cT=cols.map((_,i)=>R.reduce((a,r)=>a+r.v[i],0)),gT=cT.reduce((a,b)=>a+b,0);
- let mx=0;R.forEach(r=>r.v.forEach(x=>{if(x>mx)mx=x}));
- const rp=n=>'Rp '+cmp(n),fl=n=>'Rp '+nf(n);
- sub.textContent='Nilai barang yang dikirim dari tiap warehouse ('+(byY?'per tahun':'tahun '+S.y+', per bulan')+') · Rupiah · sumber sheet Delivery. Arahkan kursor ke angka untuk nilai lengkap.';
- const cur=c=>!byY&&S.m!==''&&c.mo===+S.m;
- t.innerHTML='<thead><tr><th>Warehouse</th>'+cols.map(c=>'<th'+(cur(c)?' class="cur"':'')+'>'+c.l+'</th>').join('')+'<th class="t">Total</th></tr></thead><tbody>'+
-  R.map(r=>'<tr'+(S.wn!==''&&r.w===S.wn?' class="sel"':'')+'><td>'+r.w+'</td>'+r.v.map((x,i)=>x>0?'<td title="'+r.w+' · '+cols[i].l+': '+fl(x)+'" style="background:color-mix(in srgb,var(--smu) '+Math.round(6+x/mx*26)+'%,transparent)">'+rp(x)+'</td>':'<td class="z">–</td>').join('')+'<td class="t" title="'+fl(r.s)+'">'+rp(r.s)+'</td></tr>').join('')+
-  '<tr class="tot"><td>Total</td>'+cT.map((x,i)=>'<td title="'+fl(x)+'">'+(x>0?rp(x):'–')+'</td>').join('')+'<td title="'+fl(gT)+'">'+rp(gT)+'</td></tr></tbody>';
+ let mx=1;R.forEach(r=>r.v.forEach(x=>{if(x>mx)mx=x}));
+ const rp=n=>'Rp '+cmp(n),fl=n=>'Rp '+nf(n),cur=c=>!byY&&S.m!==''&&c.mo===+S.m;
+ t.innerHTML='<thead><tr><th>Warehouse</th>'+cols.map(c=>'<th'+(cur(c)?' class="cur"':'')+'>'+c.l+'</th>').join('')+(byY?'':'<th class="t">Total</th>')+'</tr></thead><tbody>'+
+  R.map(r=>'<tr'+(S.wn!==''&&r.w===S.wn?' class="sel"':'')+'><td>'+r.w+'</td>'+r.v.map((x,i)=>x>0?'<td title="'+r.w+' · '+cols[i].l+': '+fl(x)+'" style="background:color-mix(in srgb,var(--smu) '+Math.round(6+x/mx*26)+'%,transparent)">'+rp(x)+'</td>':'<td class="z">–</td>').join('')+(byY?'':'<td class="t" title="'+fl(r.s)+'">'+(r.s>0?rp(r.s):'–')+'</td>')+'</tr>').join('')+
+  '<tr class="tot"><td>Total</td>'+cT.map(x=>'<td title="'+fl(x)+'">'+(x>0?rp(x):'–')+'</td>').join('')+(byY?'':'<td title="'+fl(gT)+'">'+rp(gT)+'</td>')+'</tr></tbody>';
 }
- 
+
 /* ---------- util tanggal & format ---------- */
 const dt=d=>new Date(B+d*864e5);
 const fd=d=>{const x=dt(d);return x.getUTCDate()+' '+MN[x.getUTCMonth()]};
@@ -219,7 +230,7 @@ const mi=()=>S.met=='q'?3:4;
 const nice=x=>{const p=Math.pow(10,Math.floor(Math.log10(x))),f=x/p;return(f<=1?1:f<=2?2:f<=5?5:10)*p};
 const lab=b=>b.t?b.l+' ('+b.t+')':b.l;
 const okWh=r=>S.wh===''||r[1]===S.wh;
- 
+
 function scope(){
  if(S.view=='y')return[D.d0,D.d1];
  if(S.view=='w'&&S.w!=='')return[+S.w,+S.w+6];
@@ -247,7 +258,7 @@ function rankData(keys,dd){
  keys.forEach(k=>(dd==2?D.C[k]:D.P[k]).forEach(r=>{if(r[0]<a||r[0]>b)return;if(dd!=0&&!okWh(r))return;const key=dd==0?r[1]:r[2];mp.set(key,(mp.get(key)||0)+r[m])}));
  const l=[...mp].sort((x,y)=>y[1]-x[1]);return{l,tot:l.reduce((s,x)=>s+x[1],0)};
 }
- 
+
 /* ---------- render ---------- */
 function drawHero(){
  const A=sumKey('po')+sumKey('sti'),W=sumKey('wa'),wl=S.wh===''?'Semua warehouse':WH[S.wh],[a,b]=scope();
@@ -337,10 +348,11 @@ function setData(nd){
  if(S.y<y0||S.y>y1)S.y=y1;
  S.wh=S.wn===''?'':WH.indexOf(S.wn);if(S.wh===-1){S.wh='';S.wn=''}
 }
+
 /* ---------- pembaruan otomatis ---------- */
 async function refresh(){
  if(busy)return;busy=true;$('rf').disabled=true;$('upd').classList.remove('err');$('upd').textContent='Memuat data dari Google Sheets…';
- try{setData(await load());last=new Date();$('boot').hidden=true;$('app').hidden=false;render();
+ try{const[nd,dl]=await Promise.all([load(),loadDelivery().then(x=>({x}),e=>({e}))]);if(dl.x){nd.DL=dl.x;nd.DL.year=new Date(nd.base+nd.d1*864e5).getUTCFullYear()}else nd.DLerr=dl.e.message;setData(nd);last=new Date();$('boot').hidden=true;$('app').hidden=false;render();
   $('upd').textContent='Diperbarui '+last.toLocaleTimeString('id-ID')+' · otomatis tiap 5 menit'}
  catch(e){$('upd').classList.add('err');$('upd').textContent='Gagal memuat: '+e.message+(D?' · menampilkan data terakhir':'');
   if(!D)$('boot').innerHTML='Data belum bisa dimuat. Pastikan spreadsheet dibagikan sebagai “Siapa saja yang memiliki link” dan perangkat terhubung ke internet, lalu klik Muat ulang.'}
